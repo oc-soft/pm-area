@@ -2,7 +2,10 @@ use ExtUtils::MakeMaker;
 
 WriteMakefile(
     NAME => 'Area',
-    VESION_FROM =>  'lib/Area.pm'
+    VERSION_FROM =>  'lib/Area.pm',
+    PL_FILES => {
+        'tools/parser-gen.PL' => 'blib/lib/Area/PathParser.pm'
+    }
 );
 
 

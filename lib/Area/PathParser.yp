@@ -1,0 +1,665 @@
+%{
+use Area::Path;
+
+
+sub reset_path
+{
+    my $self = shift;
+
+    delete $self->{path};
+    delete $self->{current_point};
+}
+
+sub path
+{
+    my $self = shift;
+
+    if (!$self->{path}) {
+        $self->{path} = Area::Path->new;
+        $self->{current_point} = [0, 0];
+    }
+    $self->{path};
+}
+
+sub moveto_rel
+{
+    my ($self, %args) = @_;
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->moveto(%args);
+}
+
+sub moveto
+{
+    my ($self, %args) = @_;
+    $self->path->moveto($args{x}, $args{y});
+    $self->{current_point}->[0] = $args{x};
+    $self->{current_point}->[1] = $args{y};
+    $self->path;
+}
+
+sub close_path
+{
+    my $self = shift;
+    $self->path->close;
+    $self->path;
+}
+
+sub horizontal_lineto_rel
+{
+    my ($self, %args) = @_;
+    $args{x} += $self->{current_point}->[0];   
+     
+    $self->horizontal_lineto(%args);
+}
+
+sub horizontal_lineto
+{
+    my ($self, %args) = @_;
+    $args{y} = $self->{current_point}->[1];
+    $self->lineto(%args);
+}
+
+
+sub vertical_lineto_rel
+{
+    my ($self, %args) = @_;
+    $args{y} += $self->{current_point}->[1];
+    $self->vertical_lineto(%args);
+}
+
+sub vertical_lineto
+{
+    my ($self, %args) = @_;
+    $args{x} = $self->{current_point}->[0];
+    $self->lineto(%args);
+}
+
+sub lineto_rel
+{
+    my ($self, %args) = @_;
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->lineto(%args);
+}
+
+sub lineto
+{
+    my ($self, %args) = @_;
+    $self->path->lineto($args{x}, $args{y});
+    
+    $self->{current_point}->[0] = $args{x};
+    $self->{current_point}->[1] = $args{y};
+    $self->path;
+}
+
+sub arcto_rel
+{
+    my ($self, %args) = @_;
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1]; 
+    $self->arcto(%args);
+}
+
+sub arcto
+{
+    my ($self, %args) = @_;
+    $self->path->arcto(
+        $args{rx}, $args{ry}, $args{x_axis_rotation},
+        $args{large_arc_flag}, $args{sweep_flag},
+        $args{x}, $args{y}); 
+    $self->{current_point}->[0] = $args{x};
+    $self->{current_point}->[1] = $args{y};
+    $self->path;
+}
+
+sub smooth_cubic_bezierto_rel {
+    my ($self, %args) = @_;
+    $args{x2} += $self->{current_point}->[0];
+    $args{y2} += $self->{current_point}->[1];
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->smooth_cubic_bezierto(%args);
+}
+
+
+
+sub smooth_cubic_bezierto {
+    my ($self, %args) = @_;
+
+    my $pt = $self->path->last_cubic_control_point;
+    if ($pt) {
+        $args{x1} = $self->{current_point}->[0] * 2 - $pt->[0];
+        $args{y1} = $self->{current_point}->[1] * 2 - $pt->[1];
+        $self->cubic_bezierto(%args);
+    } else {
+        undef;
+    }
+}
+
+
+sub smooth_quadratic_bezierto_rel {
+    my ($self, %args) = @_;
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->smooth_quadratic_bezierto(%args);
+}
+
+
+sub smooth_quadratic_bezierto {
+    my ($self, %args) = @_;
+
+    my $pt = $self->path->last_quadratic_control_point;
+    if ($pt) {
+        $args{x1} = $self->{current_point}->[0] * 2 - $pt->[0];
+        $args{y1} = $self->{current_point}->[1] * 2 - $pt->[1];
+        $self->quadratic_bezierto(%args);
+    } else {
+        undef;
+    }
+}
+
+sub cubic_bezierto_rel {
+    my ($self, %args) = @_;
+    $args{x1} += $self->{current_point}->[0];
+    $args{y1} += $self->{current_point}->[1];
+    $args{x2} += $self->{current_point}->[0];
+    $args{y2} += $self->{current_point}->[1];
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->cubic_bezierto(%args);
+}
+
+sub cubic_bezierto {
+    my ($self, %args) = @_;
+    
+    $self->path->cubic_bezierto($args{x1}, $args{y1},
+        $args{x2}, $args{y2}, $args{x}, $args{y});
+    $self->{current_point}->[0] = $args{x};
+    $self->{current_point}->[1] = $args{y};
+    $self->path;
+}
+
+sub quadratic_bezierto_rel {
+    my ($self, %args) = @_;
+    
+    $args{x1} += $self->{current_point}->[0];
+    $args{y1} += $self->{current_point}->[1];
+    $args{x} += $self->{current_point}->[0];
+    $args{y} += $self->{current_point}->[1];
+    $self->quadratic_bezierto(%args); 
+}
+
+
+sub quadratic_bezierto {
+    my ($self, %args) = @_;
+    
+    $self->path->quadratic_bezierto($args{x1}, $args{y1}, $args{x}, $args{y});
+    $self->{current_point}->[0] = $args{x};
+    $self->{current_point}->[1] = $args{y};
+    $self->path;
+}
+
+%}
+
+%%
+
+svg_path : wsp_z moveto_drawto_command_z_z {
+    my $res = $_[2];
+    $res = $_[1] if !$res;
+    $_[0]->reset_path;
+    $res;
+}
+    ;
+
+
+
+moveto_drawto_command_z_z : moveto wsp_z drawto_command_z
+    | 
+    ;
+
+
+drawto_command_z : 
+    | drawto_command wsp_z drawto_command_z
+    ;
+
+
+drawto_command : moveto
+    | closepath
+    | lineto
+    | horizontal_lineto
+    | vertical_lineto
+    | curveto
+    | smooth_curveto
+    | quadratic_bezier_curveto
+    | smooth_quadratic_bezier_curveto
+    | elliptical_arc
+    ;
+
+moveto : 'm' wsp_z coordinate_pair_sequence eos {
+    my $pt = shift @{$_[3]};
+    my $res;
+    $res = $_[0]->moveto_rel(x=> $pt->[0], y => $pt->[1]);
+    for (@{$_[3]}) {
+        $res = $_[0]->lineto_rel(x => $_->[0], y => $_->[1]);
+    }
+    $res;
+}
+    | 'M' wsp_z coordinate_pair_sequence eos {
+    my $pt = shift @{$_[3]};
+    my $res;
+    $res = $_[0]->moveto(x=> $pt->[0], y => $pt->[1]);
+    for (@{$_[3]}) {
+        $res = $_[0]->lineto(x => $_->[0], y => $_->[1]);
+    }
+    $res;
+}
+    ;
+
+
+closepath : 'Z' eos { $_[0]->close_path; }
+    | 'z' eos { $_[0]->close_path; }
+    ;
+
+lineto : 'l' wsp_z coordinate_pair_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->lineto_rel(x => $_->[0], y => $_->[1]);
+    }
+    $res;
+}
+    | 'L' wsp_z coordinate_pair_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->lineto(x => $_->[0], y => $_->[1]);
+    }
+    $res;
+}
+    ;
+
+horizontal_lineto : 'h' wsp_z coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->horizontal_lineto_rel(x => $_);
+    }
+    $res;
+}
+    | 'H' wsp_z coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->horizontal_lineto(x => $_);
+    }
+    $res;
+}
+    ;
+
+
+vertical_lineto : 'v' wsp_z coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->vertical_lineto_rel(y => $_);
+    }
+    $res;
+}
+    | 'V' wsp_z coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->vertical_lineto(y => $_);
+    }
+    $res;
+}
+    ;
+
+curveto : 'c' wsp_z curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->cubic_bezierto_rel(%$_);
+    }
+    $res;
+}
+    | 'C' wsp_z curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->cubic_bezierto(%$_);
+    }
+    $res;
+}
+    ;
+
+
+curveto_coordinate_sequence : coordinate_pair_triplet {
+    [
+        {
+            x1 => $_[1]->[0]->[0],
+            y1 => $_[1]->[0]->[1],
+            x2 => $_[1]->[1]->[0],
+            y2 => $_[1]->[1]->[1],
+            x => $_[1]->[2]->[0],
+            y => $_[1]->[2]->[1]
+        }
+    ]
+}
+    | coordinate_pair_triplet comma_wsp_01 curveto_coordinate_sequence { 
+    unshift @{$_[3]}, {
+        x1 => $_[1]->[0]->[0],
+        y1 => $_[1]->[0]->[1],
+        x2 => $_[1]->[1]->[0],
+        y2 => $_[1]->[1]->[1],
+        x => $_[1]->[2]->[0],
+        y => $_[1]->[2]->[1]
+    };
+    $_[3];
+}
+    ;
+
+
+smooth_curveto : 's' wsp_z smooth_curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->smooth_cubic_bezierto_rel(%$_); 
+    }
+    $res;
+}
+    | 'S' wsp_z smooth_curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->smooth_cubic_bezierto(%$_);
+    }
+    $res;
+}
+    ;
+
+smooth_curveto_coordinate_sequence : coordinate_pair_double {
+    [
+        {
+            x2 => $_[1]->[0]->[0],
+            y2 => $_[1]->[0]->[1],
+            x => $_[1]->[1]->[0],
+            y => $_[1]->[1]->[1]
+        }
+    ]
+}
+    | coordinate_pair_double comma_wsp_01 smooth_curveto_coordinate_sequence {
+    unshift @{$_[3]}, {
+        x2 => $_[1]->[0]->[0],
+        y2 => $_[1]->[0]->[1],
+        x => $_[1]->[1]->[0],
+        y => $_[1]->[1]->[1]
+    };
+    $_[3];
+}
+    ;
+
+quadratic_bezier_curveto : 'q' wsp_z quadratic_bezier_curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->quadratic_bezierto_rel(%$_);
+    }
+    $res;
+}
+    | 'Q' wsp_z quadratic_bezier_curveto_coordinate_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->quadratic_bezierto(%$_);
+    }
+    $res;
+}
+    ;
+
+quadratic_bezier_curveto_coordinate_sequence: coordinate_pair_double {
+     [
+        {
+            x1 => $_[1]->[0]->[0],
+            y1 => $_[1]->[0]->[1],
+            x => $_[1]->[1]->[0],
+            y => $_[1]->[1]->[1]
+        }
+     ];
+}
+    | coordinate_pair_double comma_wsp_01 quadratic_bezier_curveto_coordinate_sequence {
+    unshift @{$_[3]}, {
+        x1 => $_[1]->[0]->[0],
+        y1 => $_[1]->[0]->[1],
+        x => $_[1]->[1]->[0],
+        y => $_[1]->[1]->[1]
+    };
+    $_[3];
+}
+    ;
+
+
+smooth_quadratic_bezier_curveto : 't' wsp_z coordinate_pair_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->smooth_quadratic_bezierto_rel(
+            x => $_->[0],
+            y => $_->[1]);
+    }
+    $res;
+}
+    | 'T' wsp_z coordinate_pair_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->smooth_quadratic_bezierto(
+            x => $_->[0],
+            y => $_->[1]);
+    }
+    $res;
+}
+    ;
+
+elliptical_arc : 'a' wsp_z elliptical_arc_argument_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->arcto_rel(%$_);
+    }
+    $res;
+}
+    | 'A' wsp_z elliptical_arc_argument_sequence eos {
+    my $res;
+    for (@{$_[3]}) {
+        $res = $_[0]->arcto(%$_);
+    }
+    $res;
+}
+    ;
+
+
+elliptical_arc_argument_sequence : elliptical_arc_argument { [$_[1]] }
+    | elliptical_arc_argument comma_wsp_01 elliptical_arc_argument_sequence {
+
+    unshift @{$_[3]}, $_[1];
+    $_[3];
+}
+    ;
+
+
+elliptical_arc_argument : number comma_wsp_01 number comma_wsp_01 number comma_wsp flag comma_wsp_01 flag comma_wsp_01 coordinate_pair {
+    {
+        rx => $_[1],
+        ry => $_[3],
+        x_axis_rotation => $_[5],
+        large_arc_flag => $_[7],
+        sweep_flag => $_[9],
+        x => $_[11]->[0],
+        y => $_[11]->[1]
+    }
+} 
+    ;
+
+coordinate_pair_double : coordinate_pair comma_wsp_01 coordinate_pair {
+    [
+        $_[1], $_[3]
+    ]
+}
+    ;    
+
+coordinate_pair_triplet : coordinate_pair comma_wsp_01 coordinate_pair comma_wsp_01 coordinate_pair {
+    [$_[1], $_[3], $_[5]]
+}
+    ;
+
+coordinate_pair_sequence : coordinate_pair { [$_[1]] }
+    | coordinate_pair comma_wsp_01 coordinate_pair_sequence {
+    unshift @{$_[3]}, $_[1];
+    $_[3];
+}
+    ;
+
+coordinate_pair : coordinate comma_wsp_01 coordinate {
+    [$_[1], $_[3]];
+}
+    ;
+
+coordinate_sequence : coordinate { [$_[1]] }
+    | coordinate comma_wsp_01 coordinate_sequence {
+    unshift @{$_[3]}, $_[1];
+    $_[3];
+};
+ 
+coordinate : sign number { $_[1] . $_[2] }
+    | number; 
+
+sign : 'SIGN'; 
+
+
+flag : number {
+    my $res;
+    if ($_[1] == 0 || $_[1] == 1) {
+        $res = $_[1];
+    } else {
+        $_[0]->YYError;
+    }
+    $res; 
+};
+
+number : 'NUMBER';
+
+wsp_z : comma_wsp {
+    $_[0]->expect_wsp_z($_[1]);
+    $_[1];
+}
+    |;
+
+comma_wsp : 'COMMA_WSP';
+
+comma_wsp_01 : comma_wsp
+    |;
+
+eos : 'EOS';
+
+%%
+
+sub expect_wsp_z
+{
+    my $self = $_[0];
+    if (contains_comma(@_)) {
+       $self->YYError; 
+    }
+}
+
+sub contains_comma
+{
+    my ($self, $param) = @_;
+    index($param, ',') != -1;
+}
+
+
+sub lexer
+{
+    my ($class, $data) = @_;
+    my $index = 0;
+    my $last_lex_res = 0;
+    my $first_draw_command = 0;
+    sub {
+        my $lex_res;
+        if (!$last_lex_res) {
+            $lex_res = _get_token($data, $index);
+            my $draw_command = is_draw_command_token($lex_res->{value});                    if ($first_draw_command) {
+                if ($lex_res->{token} eq 'COMMA_WSP'
+                    && index($lex_res->{value}, ',') == -1) {
+                    my $next_token_idx = $index + length($lex_res->{value});
+                    if ($next_token_idx < length $data) { 
+                        my $next_token = substr $data, $next_token_idx, 1;
+                        if (is_draw_command_token($next_token)) {
+                            $lex_res->{token} = 'EOS';
+                            $last_lex_res = {
+                                token => $next_token,
+                                value => $next_token
+                            }
+                        }
+                    } else {
+                        $lex_res->{token} = 'EOS';
+                        $last_lex_res = {
+                            token => '',
+                            value => undef
+                        };
+                    }
+                } elsif ($draw_command) {
+                    $last_lex_res = $lex_res;       
+                    $lex_res = {
+                        token => 'EOS',
+                        value => ''
+                    };
+                } elsif ($lex_res->{token} eq '') {
+                    $last_lex_res = $lex_res;       
+                    $lex_res = {
+                        token => 'EOS',
+                        value => ''
+                    };
+                }
+            }
+            if ($draw_command && !$first_draw_command) {
+                $first_draw_command = 1;
+            }
+        } else {
+            $lex_res = $last_lex_res;
+            $last_lex_res = 0;
+        }
+        if (defined $lex_res->{value}) {
+            $index += length($lex_res->{value}); 
+        }
+        ($lex_res->{token}, $lex_res->{value});
+    }
+}
+
+sub _get_token
+{
+    my ($src_data, $index) = @_;
+    my %res;
+    if ($index < length($src_data)) {
+        my $data = substr $src_data, $index;
+        
+        if ($data =~ m/^([[:digit:]]*\.[[:digit:]]+)/
+            or $data =~ m/^([[:digit:]]+)/) {
+            my $fractional_constant = $1;
+            my $next_data = substr $data, length($fractional_constant);
+            my $number = $fractional_constant;
+            if ($next_data =~ m/^((e|E)(\+|\-)?[[:digit:]]+)/) {
+                my $exponent = $1;
+                $number .= $exponent;
+                $next_data = substr $next_data, length($exponent);
+            }
+            %res = (token => 'NUMBER', value => $number);
+        } elsif ($data =~ m/^(\+|\-)/) {
+            %res = (token => 'SIGN', value => $1); 
+        } elsif ($data =~ m/^([\t \n\f\r]+,?[\t \n\f\r]*)/
+            or $data =~ m/^(,[\t \n\f\r]*)/) {
+            %res = (token => 'COMMA_WSP', value => $1);
+        } else {
+            my $a_char = substr $data, 0, 1; 
+            %res = (token => $a_char, value => $a_char);
+        }
+    } else {
+        %res = (token => '', value => undef);
+    }
+    \%res;
+}
+
+sub is_draw_command_token
+{
+    my $token = shift;
+    $token =~ m/[mzlhvcsqat]/i;
+}
+
+# vi: se ts=4 sw=4 et:

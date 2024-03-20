@@ -7,6 +7,19 @@ has ['x1', 'y1', 'x2', 'y2', 'x3', 'y3' ] => (
     required => 1,
 );
 
+
+# get first moment of area
+sub first_moment_of_area
+{
+    my $area = area(@_);
+    my $center = center(@_); 
+
+    {
+        sx => $center->{x} * $area,
+        sy => $center->{y} * $area
+    }
+}
+
 # calculate center coordinate
 sub center
 {
@@ -69,6 +82,15 @@ create a triangle
          x1 => -10, y1 => 0,
          x2 => 10, y2 => 0,
          x3 => 0, y3 => 10);
+
+=head2 first_moment_of_area
+
+calculate first moment of area
+
+ my $fmoa = $triangle->first_moment_of_area();
+ 
+ print 'sx:' . $fmoa->{sx} . "\n";
+ print 'sy:' . $fmoa->{sy} . "\n";
 
 
 =head2 center
