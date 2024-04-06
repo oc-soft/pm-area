@@ -1,5 +1,7 @@
 use strict;
+use Math::Trig ':pi';
 
+use Area::Polygon::Vertex;
 use Area::Polygon::LineSegment;
 use Area::Polygon::LineSegmentList;
 
@@ -19,21 +21,39 @@ sub find_direction
 
 sub directions_test
 {
-    use Math::Trig ':pi';
+
     my @line_seg_params = (
         {
-            p1 => [0, 1],
-            p2 => [1, 2],
+            v1 => Area::Polygon::Vertex->new(
+                index => 0,
+                point => [0, 1]
+            ),
+            v2 => Area::Polygon::Vertex->new(
+                index => 1,
+                point => [1, 2]
+            ),
             direction => pip4,
         }, 
         {
-            p1 => [1, 0],
-            p2 => [1 + 2 * cos(pi / 3), 2 * sin(pi / 3)],
+            v1 => Area::Polygon::Vertex->new(
+                index => 0,
+                point => [1, 0]
+            ),
+            v2 => Area::Polygon::Vertex->new(
+                index => 1,
+                point => [1 + 2 * cos(pi / 3), 2 * sin(pi / 3)]
+            ),
             direction => pi / 3
         },
         {
-            p1 => [-5, 5],
-            p2 => [-6, 5],
+            v1 => Area::Polygon::Vertex->new(
+                index => 0,
+                point => [-5, 5]
+            ),
+            v2 => Area::Polygon::Vertex->new(
+                index => 1,
+                point => [-6, 5]
+            ),
             direction => pi 
         }
     );
