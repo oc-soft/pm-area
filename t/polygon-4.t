@@ -1,6 +1,6 @@
 use strict;
 
-use Test::Simple tests => 5; 
+use Test::Simple tests => 7; 
 use Area::Polygon;
 
 use constant SVG_NS => 'http://www.w3.org/2000/svg';
@@ -75,7 +75,7 @@ sub simple_polygon_1
     ok($test_res, 'load path correctly');
 
     $polygons->[0]->freeze;
-    my $indices = $polygons->[0]->monotone_indices_unsafe; 
+    my $indices = $polygons->[0]->monotone_indices;
     my @expects = (
         [ 0, 1, 2, 3, 7, 8 ],
         [ 3, 4, 5 ],
@@ -84,7 +84,7 @@ sub simple_polygon_1
 
     my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
     $test_res = $cmp_res == 0;
-    ok($test_res, 'expect success to run monotone_indices_unsafe');
+    ok($test_res, 'expect success to run monotone_indices');
 }
 
 sub simple_polygon_2
@@ -99,7 +99,7 @@ sub simple_polygon_2
     my $test_res;
 
     $polygons->[0]->freeze;
-    my $indices = $polygons->[0]->monotone_mountain_indices_unsafe; 
+    my $indices = $polygons->[0]->monotone_mountain_indices; 
     my @expects = (
         [ 0, 1, 7, 8 ],
         [ 1, 2, 3, 7 ],
@@ -108,7 +108,7 @@ sub simple_polygon_2
     );
     my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
     $test_res = $cmp_res == 0;
-    ok($test_res, 'expect success to run monotone_mountain_indices_unsafe');
+    ok($test_res, 'expect success to run monotone_mountain_indices');
 }
 
 sub simple_polygon_3
@@ -123,7 +123,7 @@ sub simple_polygon_3
     my $test_res;
 
     $polygons->[0]->freeze;
-    my $indices = $polygons->[0]->monotone_indices_unsafe; 
+    my $indices = $polygons->[0]->monotone_indices; 
     my @expects = (
         [ 0, 1, 13 ],
         [ 1, 2, 3, 4, 6, 8, 9 ],
@@ -134,7 +134,7 @@ sub simple_polygon_3
     );
     my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
     $test_res = $cmp_res == 0;
-    ok($test_res, 'expect success to run monotone_indices_unsafe');
+    ok($test_res, 'expect success to run monotone_indices');
 }
 
 sub simple_polygon_4
@@ -149,7 +149,7 @@ sub simple_polygon_4
     my $test_res;
 
     $polygons->[0]->freeze;
-    my $indices = $polygons->[0]->monotone_mountain_indices_unsafe; 
+    my $indices = $polygons->[0]->monotone_mountain_indices; 
     my @expects = (
         [ 0, 1, 13 ],
         [ 1, 2, 3, 9 ],
@@ -162,7 +162,56 @@ sub simple_polygon_4
     );
     my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
     $test_res = $cmp_res == 0;
-    ok($test_res, 'expect success to run monotone_mountain_indices_unsafe');
+    ok($test_res, 'expect success to run monotone_mountain_indices');
+}
+ 
+sub simple_polygon_5
+{
+    use File::Basename;
+    use File::Spec;    
+    my $test_file = File::Spec->catfile(
+        dirname(__FILE__), 'polygon-test-1.svg'); 
+    my $path = load_path_from_svg $test_file;
+
+    my $polygons = $path->to_polygons;
+
+    my $polygon = $polygons->[0]->mirror;
+    $polygon->freeze;
+    my $indices = $polygon->monotone_indices;
+    my @expects = (
+        [ 0, 1, 2, 3, 7, 8 ],
+        [ 3, 4, 5 ],
+        [ 3, 5, 6, 7 ]
+    );
+
+    my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
+    my $test_res = $cmp_res == 0;
+    ok($test_res, 'expect success to run monotone_indices');
+}
+
+sub simple_polygon_6
+{
+    use File::Basename;
+    use File::Spec;    
+    my $test_file = File::Spec->catfile(
+        dirname(__FILE__), 'polygon-test-1.svg'); 
+    my $path = load_path_from_svg $test_file;
+
+    my $polygons = $path->to_polygons;
+    my $test_res;
+
+    my $polygon = $polygons->[0]->mirror;
+    $polygon->freeze;
+    my $indices = $polygon->monotone_mountain_indices; 
+    my @expects = (
+        [ 0, 1, 7, 8 ],
+        [ 1, 2, 3, 7 ],
+        [ 3, 4, 5 ],
+        [ 3, 5, 6, 7 ]
+    );
+    my $cmp_res = compare_number_arrays_arrays $indices, \@expects; 
+    $test_res = $cmp_res == 0;
+    ok($test_res, 'expect success to run monotone_mountain_indices');
 }
 
 
@@ -170,5 +219,7 @@ simple_polygon_1;
 simple_polygon_2;
 simple_polygon_3;
 simple_polygon_4;
+simple_polygon_5;
+simple_polygon_6;
 
 # vi: se ts=4 sw=4 et:

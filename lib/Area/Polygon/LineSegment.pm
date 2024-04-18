@@ -2,6 +2,7 @@ package Area::Polygon::LineSegment;
 use strict;
 
 use Area::Polygon::Line;
+our $a, $b;
 
 # create new line segment
 sub new
@@ -132,6 +133,20 @@ sub p1 {
 sub p2 {
     my $self = shift;
     $self->v2->point;
+}
+
+# you get non zero if the point is in range
+sub in_range {
+    my ($self, $pt) = @_;
+
+    my $res;
+    my @x_coords = sort { $a <=> $b } @{$self->x_coords};
+    my @y_coords = sort { $a <=> $b } @{$self->y_coords};
+    $res = $x_coords[0] <= $pt->[0] && $pt->[0] < $x_coords[1];
+    if ($res) {
+        $res = $y_coords[0] <= $pt->[1] && $pt->[1] < $y_coords[1];
+    }
+    $res;
 }
 
 1;

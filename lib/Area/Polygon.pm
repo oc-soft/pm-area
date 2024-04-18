@@ -2,12 +2,14 @@ package Area::Polygon;
 use strict;
 
 use Math::Trig qw(:pi acos);
+use POSIX;
 use Area::Polygon::Matrix;
 use Area::Triangle;
 use Area::Polygon::LineSegment;
 use Area::Polygon::Vertex;
 use Area::Polygon::IndexTrapezoidMap;
 use Area::Polygon::Line;
+use Area::Polygon::Error;
 
 our $a, $b;
 
@@ -22,12 +24,24 @@ sub new
         $res = bless {}, $class;
         $res->{vertices} = [];
         
-        my $state = 0;  
-        for (($args{p0}, $args{p1}, $args{p2})) {
-            $state = $res->add_point($_);
+        my $state = 0; 
+        my @pt_keys;
+        for (keys %args) {
+            push @pt_keys, $_ if /p[[:digit:]]+/;
+        }
+        @pt_keys = sort { 
+            my $num_a = substr $a, 1;
+            my $num_b = substr $b, 1;
+            $num_a <=> $num_b;
+        } @pt_keys;
+        for (@pt_keys) {
+            $state = $res->add_point($args{$_});
             last if $state;
         }
         $res = undef if $state;
+    }
+    if ($res) {
+        $res->{tolerance} = $args{tolerance} || 1E-5;
     }
     $res;
 }
@@ -43,9 +57,10 @@ sub add_point
     for (@points) {
         my $pt = $_;
         if (scalar(@$pt) > 1) {
+            my @pt = @$pt;
             my $vertex = Area::Polygon::Vertex->new(
                 index => scalar @$vertices,
-                point => $pt);
+                point => \@pt);
             push @$vertices, $vertex;
         } else {
             $res = -1;
@@ -66,10 +81,25 @@ sub vertex_count
 # get point
 sub point
 {
-    my ($self, $idx) = @_;
-    $self->vertex($idx)->point;
+    my ($self, $idx, %args) = @_;
+    my $res = $self->vertex($idx)->point;
+
+    if ($args{matrix}) {
+        $res = $args{matrix}->apply(@$res);
+    }
+
+    $res;
 }
 
+# get all points
+sub points {
+    my ($self, %args) = @_;
+    my @points;
+    for (0 .. $self->vertex_count - 1) {
+        push @points, $self->point($_, %args);
+    }
+    \@points;
+}
 # get vertex
 sub vertex
 {
@@ -81,6 +111,44 @@ sub vertex
 sub line {
     my ($self, $idx) = @_;
     $self->{lines}->[$idx];
+}
+
+# dupliate polygon
+sub clone{
+    my $self = shift;
+
+    my %clone_src = (%$self);
+    $clone_src{vertices} = [];
+    delete $clone_src{lines};
+    delete $clone_src{freeze};
+    my $res = bless \%clone_src, __PACKAGE__;
+    
+    for (0 .. $self->vertex_count - 1) {
+        $res->add_point($self->point($_)); 
+    }
+    if ($self->{freeze}) {
+        $res->freeze;
+    }
+    $res; 
+}
+
+# create mirrored polygon against y axis
+sub mirror {
+    my $self = shift; 
+    my $res = $self->clone;
+
+    for (0 .. $res->vertex_count - 1) {
+        $res->point($_)->[0] *= -1; 
+    }
+    $res; 
+}
+
+# apply matrix
+sub apply_matrix {
+    my ($self, $matrix) = @_;
+    for (0 .. $self->vertex_count - 1) {
+        $self->vertex($_)->point($matrix->apply(@{$self->point($_)}));
+    }
 }
 
 # after you call freeze, you would not to add point. 
@@ -96,54 +164,6 @@ sub freeze {
         push @{$self->{lines}}, $line;
     }
 }
-
-# calculate spin direction
-# This method is not working well.
-# I realize that first triangle center may not be in internal point of polygon.
-sub calculate_spin_direction {
-    my $self = shift;
-
-    my $res;
-    if ($self->vertex_count > 2) {
-        my @center = (0, 0);
-        for (0 .. 2) {
-            $center[0] += $self->point($_)->[0];
-            $center[1] += $self->point($_)->[1];
-        }
-        @center = map { $_ / 3 } @center;
-        my $total_angles = 0;
-        for (0 .. $self->vertex_count - 1) {
-            my @points = (
-                $self->point($_),
-                $self->point(($_ + 1) % $self->vertex_count)
-            );
-            my @dirs = map {
-                my @tmp_pt = ($_->[0] - $center[0], $_->[1] - $center[1]); 
-                my $length = 0;
-                for (@tmp_pt) {
-                    $length += $_ ** 2;
-                }
-                $length **= 0.5;
-                @tmp_pt = map { 
-                    my $tmp_val = $_ / $length;
-                    $tmp_val = 1 if $tmp_val > 1;
-                    $tmp_val = -1 if $tmp_val < -1;
-                } @tmp_pt;
-                $tmp_pt[0] = 0 if $tmp_pt[1] == 1 or $tmp_pt[1] == -1;
-                $tmp_pt[1] = 0 if $tmp_pt[0] == 1 or $tmp_pt[0] == -1;
-                \@tmp_pt;
-            } @points; 
-            my @angles = map {
-                my $res = acos($_->[0]);  
-                $res = pi2 - $res if ($_->[1] < 0);
-            } @dirs; 
-            $total_angles += $angles[1] - $angles[0];
-        }
-         
-    }
-     
-}
-
 
 # freeze the polygon if not
 sub freeze_if_not {
@@ -187,12 +207,656 @@ sub create_sorted_vert_indices {
     \@indices;
 }
 
+# you get non zero if polygon points sequence is clockwize rotation.
+sub is_clockwise {
+    my $self = shift;
+
+    my $indices = $self->create_sorted_vert_indices;
+    $self->_is_clockwise($indices); 
+}
+
+# you get non zero if clockwize rotation when the coordinate system is
+# followings.
+#
+#       +y 
+#         ^
+#         |     -> clockwise(cw)
+#         |    <- counter clockwise(ccw)
+#         |           0 
+#         |           o 
+#         |          /  \
+#         |         o -- o
+#         |   2(cw)      1(cw)
+#         |   1(ccw)     2(ccw)
+#         | 
+# O(0, 0) +-------------->
+#                   +x
+sub _is_clockwise {
+    my ($self, $sorted_indices) = @_; 
+     
+    my $highest_idx = $sorted_indices->[-1];
+
+    my $lower_pt = $self->point($highest_idx);
+    my $prev_pt = $self->point($highest_idx - 1);
+    my $next_pt = $self->point($highest_idx + 1);
+
+    my $res = $prev_pt->[0] < $next_pt->[0];
+    $res;
+}
+
+# get tolerant scale
+sub _tolerant_scale {
+    my $self = shift;
+    my $exp = POSIX::floor(POSIX::log10($self->{tolerance}));
+    $exp = $exp < 0 ? $exp * - 1 : 0;
+    10 ** $exp;
+}
+
+# find same points
+sub find_same_points {
+    my $self = shift;
+    my $scale = $self->_tolerant_scale;
+    
+    my %coord_idx;
+    my @duplicated;
+    for (0 .. $self->vertex_count - 1) {
+        my @pt = @{$self->point($_)};
+        my @rounded = map { POSIX::round($scale * $_) / $scale; } @pt;
+        
+        my $indices;
+        if (defined $coord_idx{$rounded[0], $rounded[1]}) {
+            $indices = $coord_idx{$rounded[0], $rounded[1]};
+            push @duplicated, join($;, $rounded[0], $rounded[1]);
+        } else {
+            $indices = [];
+            $coord_idx{$rounded[0], $rounded[1]} = $indices;
+        }
+        push @$indices, $_; 
+    } 
+    my $res;
+    if (scalar(@duplicated)) {
+        $res = [];
+        for (@duplicated) {
+            push @$res, $coord_idx{$_};
+        }
+    }
+    $res;
+}
+
+# last error
+sub last_error {
+    my ($self, $error) = @_;
+
+    my $res = $self->{error};
+    if (defined $error) {
+        $self->{error} = $error;
+    }
+    $res;
+}
+
+sub clear_last_error {
+    my $self = shift;
+    delete $self->{error};
+}
+
+# dose need to rotate points
+sub dose_need_to_rotate {
+    my ($self) = @_;
+}
+
+# find intersection
+sub find_intersections {
+    my $self = shift;
+    my $same_points = $self->find_same_points;
+    my $res;
+    if (!defined $same_points) {
+        $res = $self->find_intersections_unsafe;
+    }
+    $res;
+}
+
+# find intersections
+# assume the polygon dose not have same points
+sub find_intersections_unsafe {
+    my $self = shift;
+
+    my $frozen = $self->{freeze};
+
+    if (!$frozen) {
+        $self->freeze;
+    }
+    my $rotation = $self->calculate_rotation(@_);
+    my $res = $self->_find_intersections($rotation); 
+    if (!$frozen) {
+        delete $self->{freeze};
+        delete $self->{lines};
+    }
+    $res;
+}
+
+# find intersection
+sub _find_intersections {
+    my ($self, $rotation) = @_;
+
+    my $poly;
+    if ($rotation != 0) {
+        $poly = $self->clone;
+        $poly->apply_matrix(
+            Area::Polygon::Matrix->new(
+                a => cos($rotation), c => -sin($rotation),
+                b => sin($rotation), d => cos($rotation)));
+    } else {
+        $poly = $self;
+    }
+    my $frozen = $poly->{freeze};
+
+    if (!$frozen) {
+        $poly->freeze;
+    }
+    
+    my $indices = $poly->create_sorted_vert_indices;  
+
+    my $intersecs = $poly->_find_intersections_0($indices);
+
+    if ($rotation != 0) {
+        my $mat;
+        $mat = Area::Polygon::Matrix->new(
+            a => cos(-$rotation), c => -sin(-$rotation),
+            b => sin(-$rotation), d => cos(-$rotation));
+        for (keys %$intersecs) {
+            my $pt = $intersecs->{$_};
+            $intersecs->{$_} = $mat->apply($pt);
+        }
+    } 
+
+    if (!$frozen) {
+        delete $poly->{freeze}; 
+        delete $poly->{lines};
+    }
+    $intersecs; 
+}
+
+
+# find intersection points
+sub _find_intersections_0 {
+    my ($self, $sorted_indices) = @_;
+
+    my %intersections;  
+    my %lines; 
+    for (@$sorted_indices) {
+        my $lines = $self->lines_from_vert_index($_);
+        my $point = $self->point($_);
+        my %cmp_res;
+        $cmp_res{prev} = _compare_point($point, $lines->{prev}->p1);
+        $cmp_res{next} = _compare_point($point, $lines->{next}->p2);
+        if ($cmp_res{prev} > 0) {
+            delete $lines{$lines->{prev}->v1->index}; 
+        }
+        if ($cmp_res{next} > 0) {
+            delete $lines{$lines->{next}->v1->index}; 
+        }
+        if ($cmp_res{prev} < 0) {
+            my $intersecs = $self->_find_line_intersections(\%lines,
+                $lines->{prev}->v1->index); 
+            $self->_update_intersections(\%intersections,
+                $intersecs, $lines->{prev}->v1->index) if defined $intersecs;
+            $lines{$lines->{prev}->v1->index} = $lines->{prev};
+        }
+        if ($cmp_res{next} < 0) {
+            my $intersecs = $self->_find_line_intersections(\%lines,
+                $lines->{next}->v1->index); 
+            $self->_update_intersections(\%intersections,
+                $intersecs, $lines->{next}->v1->index) if defined $intersecs;
+            $lines{$lines->{next}->v1->index} = $lines->{next};
+        }
+    }
+    \%intersections;
+}
+
+
+# find intersections
+sub _find_line_intersections {
+    my ($self, $lines, $line) = @_;
+
+    my %intersecs;
+    for (keys %$lines) {
+        my $line_seg_0 = $self->line($line);
+        my $line_seg_1 = $lines->{$_};
+        
+        my $intersec = Area::Polygon::Line->intersection(
+            $line_seg_0, $line_seg_1);
+        if ($intersec
+            && $line_seg_0->in_range($intersec)
+            && $line_seg_1->in_range($intersec)) {
+            $intersecs{$_} = $intersec; 
+        }
+    }
+    \%intersecs;
+}
+
+# update intersection
+sub _update_intersections {
+    my ($self, $intersec_map, $intersec_lines, $line_idx) = @_;
+    for (keys %$intersec_lines) {
+        my @key = sort {
+            $a <=> $b;
+        } ($_, $line_idx); 
+        my $intersec = $intersec_lines->{$_};
+        $intersec_map->{$key[0], $key[1]} = $intersec;
+    }
+}
+
+# calculate rotation
+sub calculate_rotation {
+    my ($self, %args) = @_;
+    my $frozen = $self->{freeze};
+
+    if (!$frozen) {
+        $self->freeze;
+    }
+
+    my $test_count = 10;
+    if (defined $args{test_count}) {
+        $test_count = $args{test_count};
+    }
+    my $rotation_division = 5;
+    if (defined $args{rotation_division}) {
+        $rotation_division = $args{rotation_division};
+    }
+
+    my $res = $self->_calculate_rotation(
+        $self->_rounded_directions_y_positive,
+        $test_count, $rotation_division); 
+    
+    if (!$frozen) {
+        delete $self->{freeze};
+        delete $self->{lines};
+    }
+    $res;
+}
+
+# find nearly value 
+sub _find_nearly_value {
+    my ($num_array, $value, $tolerance) = @_;
+    my $l = 0;
+    my $r = scalar(@$num_array) - 1;
+    my $last_l;
+    my $last_r;
+    my $res;
+    while ($l <= $r) {
+        my $idx = POSIX::floor(($l + $r) / 2);
+        my $diff = $num_array->[$idx] - $value;
+        if ($diff < 0 && -$diff > $tolerance) {
+            $last_l = $l;
+            $l = $idx + 1;
+        } elsif ($diff > 0 && $diff > $tolerance) {
+            $last_r = $r;
+            $r = $idx - 1;     
+        } else {
+            $res = $num_array->[$idx];
+            last;
+        }
+    } 
+    $res;
+}
+
+# calculate rotation
+sub _calculate_rotation {
+    my ($self, $rounded_directions_y_positive,
+        $test_count, $rotation_division) = @_;
+
+    my $res;
+    if (!defined $rounded_directions_y_positive->{1, 0}) {
+        my $sp_index = $self->_find_same_y_coordinate_index_with_angle;
+        if (!defined $sp_index) {
+            $res = 0; 
+        }
+    }
+    if (!defined $res and $test_count > 1) {
+        my $radians = $self->_calculate_radians(
+            $rounded_directions_y_positive); 
+        unshift @$radians, 0 if $radians->[0] != 0;
+        my $indices = $self->_calculate_angle_difference_indices(
+            $radians); 
+
+       
+        my $try_count = 1;
+        FIND_RADIAN: for (reverse @$indices) {
+            my $rad_idx = $_;
+            for (2 .. $rotation_division) {
+                my $rad_1 = $radians->[$rad_idx + 1] + $radians->[$rad_idx];
+                my $div = $_;
+                for (1 .. $div - 1) {
+                    my $rad = ($rad_1 * $_) / $div;
+                    my $nearly_rad = _find_nearly_value(
+                        $radians, $rad, $self->{tolerance});
+                    next if defined $nearly_rad;
+                    $rad *= -1;
+                    my $sp_idx;
+                    $sp_idx = $self->_find_same_y_coordinate_index_with_angle(
+                        $rad); 
+                    $try_count++;
+                    if (!defined $sp_idx) {
+                        $res = $rad;
+                        last FIND_RADIAN;
+                    }
+                    last FIND_RADIAN if $try_count > $test_count; 
+                }
+            }
+        }
+    }
+    $res;
+}
+
+
+# find y coordinate index with a with angle 
+sub _find_same_y_coordinate_index_with_angle {
+    my ($self, $angle) = @_;
+
+    my $mat;
+    if ($angle) {
+        $mat = Area::Polygon::Matrix->new(
+            a => cos($angle), c => -sin($angle),
+            b => sin($angle), d => cos($angle));
+    }
+    my @points = sort {
+        _compare_point $a, $b
+    } @{$self->points(matrix => $mat)};
+    $self->_find_same_y_coordinate_index(\@points);
+}
+
+
+# find same y coordinate index
+sub _find_same_y_coordinate_index {
+    my ($self, $sorted_points) = @_;
+
+    my $res;
+    my $y_coord = $sorted_points->[0]->[1]; 
+    for (1 .. scalar(@$sorted_points) - 1) {
+        my $next_y_coord = $sorted_points->[$_]->[1];
+        if (($y_coord <=> $next_y_coord) == 0) {
+            $res = [ $_ - 1, $_ ];
+            last;      
+        }
+        $y_coord = $next_y_coord;
+    }
+    $res; 
+}
+
+
+# calculate angle difference indices
+sub _calculate_angle_difference_indices {
+    my ($self, $radians) = @_;
+    my @indices = 0 .. scalar(@$radians) - 2; 
+    my @res = sort { 
+        my $diff_a = $radians->[$a + 1] - $radians->[$a]; 
+        my $diff_b = $radians->[$b + 1] - $radians->[$b];
+        $diff_a <=> $diff_b;
+    } @indices;
+    \@res;
+}
+
+
+# calculate radians
+sub _calculate_radians {
+    my ($self, $dir_map) = @_;
+    my @radians;
+    for (keys %$dir_map) {
+        my @dir = @{$dir_map->{$_}->[0]};
+        push @radians, acos($dir[0]);        
+    }
+    @radians = sort { $a <=> $b } @radians;
+    \@radians;
+}
+
+# you get true if this polygon have to be rotated for motone polygon
+sub dose_need_to_rotate {
+    my $self = shift;
+    my $freezed = $self->{freeze};
+
+    if (!$freezed) {
+        $self->freeze;
+    }
+    my $res = $self->_dose_need_to_rotate(
+        $self->_rounded_directions_y_positive); 
+    
+    if (!$freezed) {
+        delete $self->{lines};
+    }
+    $res;
+}
+
+
+# dose need to rotate points
+sub _dose_need_to_rotate {
+    my ($self, $dir_map) = @_;
+    defined $dir_map->{1,0};
+}
+
+# create rounded line direction having positive y coordinate
+sub rounded_directions_y_positive {
+    my $self = shift;
+    my $frozen = $self->{freeze};
+    if (!$frozen) {
+        $self->freeze;
+    } 
+    my $res = $self->_rounded_directions_y_positive;
+    if (!$frozen) {
+        delete $self->{freeze};
+        delete $self->{lines};
+    }
+    $res;
+}
+
+# create rounded line direction having positive y coordinate
+sub _rounded_directions_y_positive {
+    my $self = shift;
+    my $dir_map = $self->_rounded_directions;
+
+    my %res;
+    for (keys %$dir_map) {
+        my @r_dir_array;
+        for (@{$dir_map->{$_}}) { 
+            my @dir = @$_;
+            if ($dir[1] < 0) {
+                @dir = map { $_ * -1 } @dir;
+            } elsif ($dir[1] == 0 && $dir[0] < 0) {
+                $dir[0] *= -1;
+            }
+            push @r_dir_array, \@dir;
+        }
+        for (@r_dir_array) {
+            my $lines;
+            if (defined $res{$_->[0], $_->[1]}) {
+                $lines = $res{$_->[0], $_->[1]};
+            } else {
+                $lines = [];
+                $res{$_->[0], $_->[1]} = $lines;
+            }
+            push @$lines, $_;
+        }
+    }
+    \%res;
+}
+
+# create rounded line directions with tolerance
+sub rounded_directions {
+    my $self = shift;
+    my $frozen = $self->{freeze};
+    if (!$frozen) {
+        $self->freeze;
+    } 
+    my $res = $self->_rounded_directions;
+    if (!$frozen) {
+        delete $self->{freeze};
+        delete $self->{lines};
+    }
+    $res;
+}
+
+# create rounded line directions with tolerance
+sub _rounded_directions {
+    my $self = shift;
+    my %res;
+    my $dir_map = $self->_line_directions;
+    my $scale = $self->_tolerant_scale;
+    for (keys %$dir_map) {
+        my $dir_array = $dir_map->{$_};
+        my @r_dir_array;
+        for (@$dir_array) {
+            my @r_dir = map { POSIX::round($scale * $_) / $scale; } @$_;
+            push @r_dir_array, \@r_dir;
+        }
+
+        for (@r_dir_array) {
+            my $r_dir = $_;
+            for (0 .. 1) {
+                if (abs(1 - abs($r_dir->[$_])) < $self->{tolerance}) {
+                    $r_dir->[$_] = $r_dir->[$_] <=> 0;
+                } 
+            }
+        }
+           
+        for (@r_dir_array) {
+            my @r_dir = @$_;
+            my $lines;
+            if (defined $res{$r_dir[0], $r_dir[1]}) {
+                $lines = $res{$r_dir[0], $r_dir[1]};
+            } else {
+                $lines = [];
+                $res{$r_dir[0], $r_dir[1]} = $lines;
+            }
+            push @$lines, \@r_dir;  
+        }
+    }
+    \%res;
+}
+
+# calculate line directions
+sub line_directions {
+    my $self = shift;
+    my $frozen = $self->{freeze};
+    if (!$frozen) {
+        $self->freeze;
+    } 
+    my $res = $self->_line_directions;
+    if (!$frozen) {
+        delete $self->{freeze};
+        delete $self->{lines};
+    }
+    $res;
+}
+
+# create line directions
+sub _line_directions {
+    my $self = shift;
+
+    my %res;
+    for (0 .. $self->vertex_count - 1) {
+        my $line = $self->line($_);
+        my @dir = @{$line->direction};
+        my $lines;
+        if (defined $res{$dir[0], $dir[1]}) {
+            $lines = $res{$dir[0], $dir[1]};
+        } else {
+            $lines = [];
+            $res{$dir[0], $dir[1]} = $lines;
+        }
+        push @$lines, \@dir;  
+    } 
+    \%res;
+}
+
+# check prerequisite to split motone polygons
+sub is_ready_to_monotonize {
+    my ($self, %args) = @_;
+    my $res = 0;
+    my $same_points = $self->find_same_points;
+    if (!defined $same_points) {
+        my $intersecs = $self->find_intersections_unsafe;
+        if ($intersecs && keys %$intersecs) {
+            $self->last_error(
+                Area::Polygon::Error->new(
+                    error_str => 'Polygon has intersection.',
+                    data => $intersecs));
+            
+        } else {
+            $res = 1;
+        }
+    } else {
+        $self->last_error(
+            Area::Polygon::Error->new(
+                error_str => 'Polygon has same points.',
+                data => $same_points));
+    }
+    $res;
+}
+
+
+# calculate parameter to split motone polygons
+sub calculate_monotone_params {
+    my ($self, @args) = @_;
+    my $res;
+    if ($self->is_ready_to_monotonize) {
+        my $rotation = $self->calculate_rotation(@args);
+        my $poly = $self->clone;
+        if ($rotation != 0) {
+            $poly->apply_matrix(
+                Area::Polygon::Matrix->new(
+                    a => cos($rotation), c => -sin($rotation),
+                    b => sin($rotation), d => cos($rotation)));
+        }
+        my $indices = $poly->create_sorted_vert_indices;
+
+        if (!$poly->_is_clockwise($indices)) {
+            $poly = $poly->mirror;
+            $indices = $poly->create_sorted_vert_indices;
+        }
+        $poly->freeze;
+        my %res = ( 
+            indices => $indices,
+            polygon => $poly
+        ); 
+        $res = \%res;
+    }
+    $res;
+}
 
 
 # calculate monotone indices
 sub monotone_indices {
-    my $self = shift;
+    my ($self, @args) = @_;
+    my $params = $self->calculate_monotone_params(@args);
+    my $res;
+    if (defined $params) {
+        $res = $params->{polygon}->_monotone_indices($params->{indices});
+    }
+    $res;
+}
+
+# calculate monotone mountain indices
+sub monotone_mountain_indices {
+    my ($self, @args) = @_;
+    my $params = $self->calculate_monotone_params(@args);
+    my $res;
+    if (defined $params) {
+        $res = $params->{polygon}->_monotone_mountain_indices(
+            $params->{indices});
+    }
+    $res;
+}
+
+# calculate monotone indices
+sub monotone_indices_unsafe {
+    my $self = $_[0];
     my $indices = $self->create_sorted_vert_indices;
+    $self->_monotone_indices($indices);
+}
+
+# calculate monotone indices
+sub _monotone_indices {
+    my $self = shift;
+    my $indices = shift;
     my $index_trapezoid_map = Area::Polygon::IndexTrapezoidMap->new(
         count_of_lines => scalar @{$self->{lines}});   
     my @cusps;
@@ -207,9 +871,16 @@ sub monotone_indices {
 
 
 # calculate monotone mountain indices
-sub monotone_mountain_indices {
+sub monotone_mountain_indices_unsafe {
     my $self = shift;
     my $indices = $self->create_sorted_vert_indices;
+    $self->_monotone_mountain_indices($indices); 
+}
+
+# calculate monotone mountain indices
+sub _monotone_mountain_indices {
+    my $self = shift;
+    my $indices = shift;
     my $index_trapezoid_map = Area::Polygon::IndexTrapezoidMap->new(
         count_of_lines => scalar @{$self->{lines}});   
     my @cusps;
@@ -229,6 +900,7 @@ sub monotone_mountain_indices {
 
     $self->split_polygon_by_diagonals(\%diagonals);
 }
+
 
 # create trapezoid map
 sub create_trapezoid_map {
@@ -268,6 +940,7 @@ sub create_trapezoid_map {
     
 }
 
+# get lines from vert index
 sub lines_from_vert_index {
     my ($self, $idx) = @_;
     {
@@ -276,6 +949,7 @@ sub lines_from_vert_index {
     };
 }
 
+# create trapezoid line
 sub create_trapezoid_line {
     my ($self, $idx, $lines, $vert_status, 
         $index_trapezoid_map,
@@ -764,7 +1438,7 @@ sub _triangulation_indices
 
 }
 
-
+# separate some monotone polygons
 sub _monotonize
 {
 
