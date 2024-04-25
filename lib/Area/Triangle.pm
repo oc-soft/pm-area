@@ -25,28 +25,41 @@ sub center
 {
     my $self = shift;
     {
-        x => ($self->{x1} + $self->{x2} + $self->{x3}) / 3,
-        y => ($self->{y1} + $self->{y2} + $self->{y3}) / 3
+        x => ($self->x1 + $self->x2 + $self->x3) / 3,
+        y => ($self->y1 + $self->y2 + $self->y3) / 3
     }
 }
 
-# calculate area
-sub area
+# get point sequence
+sub points {
+    my $self = shift;
+    [ 
+        [ $self->x1, $self->y1 ],
+        [ $self->x2, $self->y2 ],
+        [ $self->x3, $self->y3 ]
+    ];
+}
+
+# calculate signed area
+sub signed_area
 {
     my $self = shift;
 
-    my @av = (
-        $self->{x2} - $self->{x1},
-        $self->{y2} - $self->{y1}
-    );
-    my @bv = (
-        $self->{x3} - $self->{x1},
-        $self->{y3} - $self->{y1}
-    );
-
-    ($av[0] * $bv[1] - $av[1] * $bv[0]) / 2;
+    my $area = 0;
+    my $points = $self->points;
+    for (0 .. @$points - 1) {
+        my $pt0 = $points->[$_ - 1];
+        my $pt1 = $points->[$_];
+        $area += ($pt1->[0] - $pt0->[0]) * ($pt0->[1] + $pt1->[1]) / 2;
+    }
+    $area;
 }
 
+# calculate area
+sub area {
+    my $self = shift;
+    abs($self->signed_area);
+}
 1;
 
 __END__

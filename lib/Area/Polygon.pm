@@ -143,12 +143,181 @@ sub mirror {
     $res; 
 }
 
+# calculate signed area
+sub signed_area {
+    my ($self) = @_;
+    
+    my $res = 0;
+    for (0 .. $self->vertex_count - 1) {
+        my @points = ($self->point($_ - 1), $self->point($_));
+        $res += ($points[1]->[0] - $points[0]->[0])
+            * ($points[0]->[1] + $points[1]->[1]) / 2;
+    }
+    $res;
+}
+
+# calculate area
+sub area {
+    abs($_[0]->signed_area);
+}
+
+# get center
+sub center_by_points
+{
+    my $self = $_[0];
+    my @fma = (0, 0);
+    my $area = 0;
+    for (0 .. $self->vertex_count - 1) {
+        my @points = ($self->point($_ - 1), $self->point($_));
+        if ($points[0]->[0] != $points[1]->[0]) {
+            my $area0 = ($points[1]->[0] - $points[0]->[0])
+                * ($points[0]->[1] + $points[1]->[1]) / 2;
+            if ($area0 != 0) {
+                my $center = $self->calculate_center_of_2_points_region(
+                    @points);
+                for (0 .. scalar(@$center) - 1) {
+                    $fma[$_] += $center->[$_] * $area0;
+                } 
+            }
+            $area += $area0;
+        }
+    }
+    my @center = map { $_ / $area } @fma;
+    \@center;
+}
+
+# calculate center of 2 points region
+sub calculate_center_of_2_points_region
+{
+    my ($self, @points) = @_;
+
+    my @x_points = ($points[0]->[0], $points[1]->[0]);
+    my @y_points = ($points[0]->[1], $points[1]->[1]);
+    my @center;
+    if ($y_points[0] * $y_points[1] > 0) {
+        my @rec_center; 
+        my $rec_area;
+        my $y_rec_height;
+        my %triangle_param;
+        if ($y_points[0] > 0) {
+            if ($y_points[0] < $y_points[1]) {
+                $y_rec_height = $y_points[0];
+                %triangle_param = (
+                    x1 => $x_points[0], y1 => $y_points[0],
+                    x2 => $x_points[1], y2 => $y_points[0],
+                    x3 => $x_points[1], y3 => $y_points[1]); 
+            } elsif ($y_points[0] > $y_points[1]) {
+                $y_rec_height = $y_points[1];
+                %triangle_param = (
+                    x1 => $x_points[0], y1 => $y_points[1],
+                    x2 => $x_points[1], y2 => $y_points[1],
+                    x3 => $x_points[0], y3 => $y_points[0]); 
+            } else {
+                $y_rec_height = $y_points[1];
+            }
+        } else {
+            if ($y_points[0] > $y_points[1]) {
+                $y_rec_height = $y_points[0];
+                %triangle_param = (
+                    x1 => $x_points[0], y1 => $y_points[0],
+                    x2 => $x_points[1], y2 => $y_points[0],
+                    x3 => $x_points[1], y3 => $y_points[1]); 
+            } elsif ($y_points[0] < $y_points[1]) {
+                $y_rec_height = $y_points[1];
+                %triangle_param = (
+                    x1 => $x_points[0], y1 => $y_points[1],
+                    x2 => $x_points[1], y2 => $y_points[1],
+                    x3 => $x_points[0], y3 => $y_points[0]); 
+            } else {
+                $y_rec_height = $y_points[1];
+            }
+        }  
+        @rec_center = (($x_points[0] + $x_points[1]) / 2, $y_rec_height / 2);
+        $rec_area = abs(($x_points[1] - $x_points[0]) * $y_rec_height);
+        my @fma = map { $_ * $rec_area } @rec_center;
+ 
+        my $area = $rec_area;
+        if (%triangle_param) {
+            my $triangle = Area::Triangle->new(%triangle_param);
+            my $triangle_center = $triangle->center;
+            my @triangle_center = (
+                $triangle_center->{x}, $triangle_center->{y});
+            my $triangle_area = $triangle->area;
+            my @triangle_fma = map { $_ * $triangle_area } @triangle_center;
+            for (0 .. $#triangle_fma) {
+                $fma[$_] += $triangle_fma[$_]; 
+            }
+            $area += $triangle_area;
+        }
+        @center = map { $_ / $area } @fma;
+    } else {
+        my @lines = (
+            Area::Polygon::Line->new(
+                p1 => [ $x_points[0], $y_points[0] ],
+                p2 => [ $x_points[1], $y_points[1] ]),
+            Area::Polygon::Line->new(
+                p1 => [ 0, 0 ],
+                p2 => [ 1, 0 ])
+        ); 
+        my $intersec = Area::Polygon::Line->intersection(@lines);
+        my $mx = $intersec->[0];
+        my @triangles;
+        push @triangles, Area::Triangle->new(
+            x1 => $x_points[0],
+            y1 => 0, 
+            x2 => $mx,
+            y2 => 0,
+            x3 => $x_points[0],
+            y3 => $y_points[0]) if $x_points[0] != $mx;   
+        push @triangles, Area::Triangle->new(
+            x1 => $mx,
+            y1 => 0, 
+            x2 => $x_points[1],
+            y2 => 0,
+            x3 => $x_points[1],
+            y3 => $y_points[1]) if $x_points[1] != $mx;   
+
+        my @fma = (0, 0);
+        my $area = 0; 
+        for (@triangles) {
+            my $center = $_->center;
+            my @center = ($center->{x}, $center->{y});
+            my $triangle_area = $_->area;
+            for (0 .. $#center) {
+                $fma[$_] += $center[$_] * $triangle_area;
+            }
+            $area += $triangle_area;
+        }
+        @center = ($fma[0] / $area, $fma[1] / $area);
+    }
+    \@center;
+}
+
+
 # apply matrix
 sub apply_matrix {
     my ($self, $matrix) = @_;
     for (0 .. $self->vertex_count - 1) {
         $self->vertex($_)->point($matrix->apply(@{$self->point($_)}));
     }
+}
+
+# create subpolygon
+sub subpolygon {
+    my ($self, $indices) = @_;
+
+    my @params;
+    my %index_map;
+    for (@$indices) {
+        my $pt_idx = scalar(@params) / 2;
+        push @params, "p${pt_idx}", $self->point($_);
+        $index_map{$pt_idx} = $_;
+    } 
+    my $poly = Area::Polygon->new(@params);
+    {
+        polygon => $poly,
+        index_map => \%index_map
+    }; 
 }
 
 # after you call freeze, you would not to add point. 
@@ -294,6 +463,8 @@ sub last_error {
     $res;
 }
 
+
+# clear last error
 sub clear_last_error {
     my $self = shift;
     delete $self->{error};
@@ -997,12 +1168,24 @@ sub create_trapezoid_line {
 # calculate vector angle
 sub calculate_vector_angle {
     my ($self, $vert_idx) = @_;
-    my $lines = $self->lines_from_vert_index($vert_idx);
+    $self->_calculate_vector_angle(
+        $vert_idx - 1,
+        $vert_idx,
+        ($vert_idx + 1) % $self->vertex_count);
+}
 
-    my @dirs = (
-        $lines->{prev}->direction,
-        $lines->{next}->direction
-    ); 
+# calculate vector angle
+sub _calculate_vector_angle {
+    my ($self, $idx0, $idx1, $idx2) = @_;
+    my @lines = (
+        Area::Polygon::Line->new(
+            p1 => $self->point($idx0),
+            p2 => $self->point($idx1)),
+        Area::Polygon::Line->new(
+            p1 => $self->point($idx1),
+            p2 => $self->point($idx2)));
+
+    my @dirs = map { $_->direction } @lines;
     
     my @each_angles = map {
         my $res;
@@ -1020,6 +1203,7 @@ sub calculate_vector_angle {
     $res -= $tmp_val * pi2;
     $res;
 }
+
 
 
 # calculate intersections
@@ -1404,44 +1588,196 @@ sub split_polygon_by_diagonals {
     \@polygon_indices;
 }
 
-# triangulation
-sub triangulation
-{
-    my $self = shift;
-    my $monotonized = $self->_monotonize; 
-
-    my @triangles;
-    if ($monotonized) {
-        my $triangle_indices;
-        $triangle_indices = $self->_triangulation_indices($monotonized);
-        
-        for (@$triangle_indices) {
-            my $p1 = $self->point($_->[0]);
-            my $p2 = $self->point($_->[1]);
-            my $p3 = $self->point($_->[2]);
-
-            push @triangles, Area::Triangle->new(
-                x1 => $p1->[0],
-                y1 => $p1->[1],
-                x2 => $p2->[0],
-                y2 => $p2->[1],
-                x3 => $p3->[0],
-                y3 => $p3->[1]);
-        }
+# divide polygon into triangles
+sub triangulation_monotone {
+    my ($self) = @_; 
+    my $indices = $self->monotone_triangulation_indices;
+    my $res;
+    if (defined $indices) {
+        $res = $self->_triangles($indices);
     }
-   \@triangles;
+    $res; 
+}
+
+# divide polygon into triangles
+sub triangulation_monotone_mountain {
+    my ($self) = @_; 
+    my $indices = $self->monotone_mountain_triangulation_indices;
+    my $res;
+    if (defined $indices) {
+        $res = $self->_triangles($indices);
+    }
+    $res; 
 }
 
 
-sub _triangulation_indices
-{
-
+# separate triangles
+sub _triangles {
+    my ($self, $indices) = @_;
+    my @triangles;
+    for (@$indices) {
+        my $triangle_indices  = $_;
+        my %param;
+        for (0 .. @$triangle_indices - 1) {
+            my $pt = $self->point($triangle_indices->[$_]);
+            my $param_idx = $_ + 1;
+            $param{"x$param_idx"} = $pt->[0];
+            $param{"y$param_idx"} = $pt->[1];
+        }
+        push @triangles, Area::Triangle->new(%param); 
+    }
+    \@triangles;
 }
 
-# separate some monotone polygons
-sub _monotonize
+# monotone triangulation
+sub monotone_triangulation_indices
 {
+    my ($self, @args) = @_;
+    my $params = $self->calculate_monotone_params(@args);
+    my $res;
+    if (defined $params) {
+        my $monotone_indices = $params->{polygon}->_monotone_indices(
+            $params->{indices});
 
+        $res = $params->{polygon}->_monotone_triangulation_indices(
+            $monotone_indices);
+    }
+    $res;
+}
+
+# monotone mountain triangulation
+sub monotone_mountain_triangulation_indices
+{
+    my ($self, @args) = @_;
+    my $params = $self->calculate_monotone_params(@args);
+    my $res;
+    if (defined $params) {
+        my $monotone_indices = $params->{polygon}->_monotone_mountain_indices(
+            $params->{indices});
+
+        $res = $params->{polygon}->_monotone_triangulation_indices(
+            $monotone_indices);
+    }
+    $res;
+}
+
+
+# monotone triangulation
+sub _monotone_triangulation_indices
+{
+    my ($self, $monotone_indices) = @_;
+
+    my @triangle_indices;
+    for (@$monotone_indices) {
+        if (@$_ > 3) {
+            my $sub_poly = $self->subpolygon($_);
+            $sub_poly->{polygon}->freeze;
+            my $triangle_indices = 
+                $sub_poly->{polygon}->_monotone_triangle_indices_unsafe;
+            for (@$triangle_indices) {
+                my @triangle_indices_0 = map { 
+                    $sub_poly->{index_map}->{$_}; 
+                } @$_;
+                push @triangle_indices, \@triangle_indices_0;
+            } 
+        } else {
+            push @triangle_indices, $_;
+        }
+    } 
+    \@triangle_indices;
+}
+
+
+
+# create triangle indices
+# the polygon must be monotone.
+# the polygon must be clockwise.
+sub _monotone_triangle_indices_unsafe {
+    my $self = shift;
+    my $indices = $self->create_sorted_vert_indices;
+
+    my $start_idx = $indices->[0];
+    my $end_idx = $indices->[-1];
+
+    my %left_chain;
+    my %right_chain;
+
+    my $idx;
+    $idx = ($start_idx + 1) % $self->vertex_count;
+    while ($idx != $end_idx) {
+        $left_chain{$idx} = $idx;
+        $idx = ($idx + 1) % $self->vertex_count;
+    }
+    $idx = ($start_idx - 1) % $self->vertex_count;
+    while ($idx != $end_idx) {
+        $right_chain{$idx} = $idx;
+        $idx = ($idx - 1) % $self->vertex_count;
+    }
+    $self->_monotone_triangle_indices_unsafe_0(
+        $indices, \%left_chain, \%right_chain);
+}
+
+# create triangle indices
+# the polygon must be monotone.
+# the polygon must be clockwise.
+sub _monotone_triangle_indices_unsafe_0 {
+    my ($self, $indices, $left_chain, $right_chain) = @_;
+    my %state;
+    my @triangle_indices;
+    my @reflex_vertices = ($indices->[0]);
+    for (1 .. @$indices - 2) {
+        my $vert_chain;
+        my $idx = $indices->[$_];
+        if (defined $left_chain->{$idx}) {
+            $vert_chain = 'left';
+        } elsif (defined $right_chain->{$idx}) {
+            $vert_chain = 'right';
+        }
+        if (@reflex_vertices > 1) {
+            if ($state{chain} eq $vert_chain) {
+                while (@reflex_vertices > 1) {
+                    my @vert_indices;
+                    if ($state{chain} eq 'left') {
+                        @vert_indices = (
+                            $reflex_vertices[-2],
+                            $reflex_vertices[-1],
+                            $idx);
+                    } else {
+                        @vert_indices = (
+                            $idx,
+                            $reflex_vertices[-1],
+                            $reflex_vertices[-2]);
+                    }
+                    my $vec_angle = $self->_calculate_vector_angle(
+                        @vert_indices);
+
+                    if ($vec_angle >= pi) { 
+                        last;
+                    } else {
+                        push @triangle_indices, \@vert_indices;
+                        pop @reflex_vertices; 
+                    }
+                }
+            } else {
+                while (@reflex_vertices > 1) {
+                    push @triangle_indices, 
+                        [$idx, $reflex_vertices[0], $reflex_vertices[1]];
+                    shift @reflex_vertices; 
+                }
+                $state{chain} = $vert_chain;
+            }
+        } else {
+            $state{chain} = $vert_chain;
+        }
+        push @reflex_vertices, $idx;
+    }
+
+    my $idx = $indices->[-1]; 
+    for (0 .. @reflex_vertices - 2) {
+        push @triangle_indices, 
+            [$idx, $reflex_vertices[$_], $reflex_vertices[$_ + 1]];
+    }
+    \@triangle_indices; 
 }
 1;
 __END__
