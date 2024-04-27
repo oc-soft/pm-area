@@ -2,6 +2,9 @@ package Area::Path;
 
 use strict;
 use Area::Polygon;
+use Area::Bezier::Cubic;
+use Area::Bezier::Quadratic;
+use Area::Arc;
 
 # constructor
 sub new {
@@ -128,7 +131,7 @@ sub arcto {
     push @{$self->{commands}}, {
         command => 'A',
         rx => $rx, ry => $ry, 
-        x_axis_rotaion => $x_axis_rotation,
+        x_axis_rotation => $x_axis_rotation,
         large_arc_flag => $large_arc_flag,
         sweep_flag => $sweep_flag,
         x => $x, y => $y,
@@ -187,6 +190,116 @@ sub last_quadratic_control_point {
     $res;
 }
 
+# convert lines and svg element
+sub covert_lines_and_svg_element {
+    my ($self, $last_cmd, $cmd) = @_;
+
+    my %res;
+    if ($cmd->{command} =~ /L|C|Q/) {
+        $res{points} = [
+            [
+                $last_cmd->{x},
+                $last_cmd->{y},
+            ],
+            [
+                $cmd->{x},
+                $cmd->{y}
+            ]
+        ]  
+    }
+    if ($cmd->{command} eq 'C') {
+        $res{command} = Area::Bezier::Cubic->new(
+            p1 => [ $last_cmd->{x}, $last_cmd->{y} ],
+            p2 => [ $cmd->{x}, $cmd->{y} ],
+            c1 => [ $cmd->{x1}, $cmd->{y1} ],
+            c2 => [ $cmd->{x2}, $cmd->{y2} ]
+        );
+    } elsif ($cmd->{command} eq 'Q') {
+        $res{command} = Area::Bezier::Quadratic->new(
+            p1 => [ $last_cmd->{x}, $last_cmd->{y} ],
+            p2 => [ $cmd->{x}, $cmd->{y} ],
+            c => [ $cmd->{x1}, $cmd->{y1} ],
+        );
+    } elsif ($cmd->{command} eq 'A') {
+        my $arc = Area::Arc->new(
+            x1 => $last_cmd->{x},
+            y1 => $last_cmd->{y},
+            angle => $cmd->{x_axis_rotation},  
+            large_arc_flag => $cmd->{large_arc_flag}, 
+            sweep_flag => $cmd->{sweep_flag},
+            rx => $cmd->{rx},
+            ry => $cmd->{ry},
+            x2 => $cmd->{x},
+            y2 => $cmd->{y}
+        );
+        $res{command} = $arc;
+
+        my $center_param = $arc->center_parameter; 
+        $res{points} = [
+            [
+                $last_cmd->{x},
+                $last_cmd->{y},
+            ],
+            [
+                $center_param->{cx},
+                $center_param->{cy}
+            ],
+            [
+                $cmd->{x},
+                $cmd->{y}
+            ]
+        ]; 
+    }
+    \%res;
+}
+
+
+# convert some polygons and some svg elements
+sub polygons_and_svg_elements {
+    my $self = shift;
+    my $polygon_commands = $self->create_polygon_commands;
+    my @res;
+    for (@$polygon_commands) {
+        my $commands = $_;
+        if (scalar(@$commands) > 2) {
+            my @svg_commands;
+            my @line_commands = (
+                $self->covert_lines_and_svg_element($_->[0], $_->[1]),
+                $self->covert_lines_and_svg_element($_->[1], $_->[2]),
+            );
+            my %poly_param = (
+                p0 => $line_commands[0]->{points}->[0]
+            );
+            for (1 .. @{$line_commands[0]->{points}} - 1) {
+                $poly_param{"p$_"} = $line_commands[0]->{points}->[$_];
+            }
+            my $idx_offset = @{$line_commands[0]->{points}};
+            for (0 .. @{$line_commands[1]->{points}} - 1) {
+                my $pt_idx = $_ + $idx_offset;
+                $poly_param{"p$pt_idx"} = $line_commands[1]->{points}->[$_];
+            }
+            for (@line_commands) {
+                push @svg_commands, $_->{command} if defined $_->{command};
+            }
+            my $polygon = Area::Polygon->new(%poly_param);
+            for (3 .. scalar(@$commands) - 1) {
+                my $line_command = $self->covert_lines_and_svg_element(
+                    $commands->[$_ - 1], $commands->[$_]);
+                push @svg_commands, $line_command->{command}
+                    if defined $line_command->{command};
+                for (@{$line_command->{points}}) {
+                    $polygon->add_point($_);
+                }
+            }
+            push @res, {
+                polygon => $polygon,
+                svg_elements => \@svg_commands
+            }; 
+        }
+    }
+    \@res;
+}
+
 
 # convert some polygons
 sub to_polygons
@@ -201,6 +314,7 @@ sub to_polygons
                 p0 => [$_->[0]->{x}, $_->[0]->{y}],
                 p1 => [$_->[1]->{x}, $_->[1]->{y}],
                 p2 => [$_->[2]->{x}, $_->[2]->{y}]);
+
             for (3 .. scalar(@$commands) - 1) {
                 $polygon->add_point(
                     [$commands->[$_]->{x}, $commands->[$_]->{y}]);
