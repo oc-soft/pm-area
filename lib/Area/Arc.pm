@@ -1,4 +1,5 @@
 package Area::Arc;
+use strict;
 use Moose;
 
 has ['rx', 'ry'] => (
@@ -37,8 +38,8 @@ sub center
     if ($area > 0) {
         my $fmoa = first_moment_of_area(@_);
         $res = { 
-            x => $fmoa->{cx} / $area,
-            y => $fmoa->{cy} / $area
+            x => $fmoa->{sx} / $area,
+            y => $fmoa->{sy} / $area
         };
     } else {
         my $self = $_[0];
@@ -62,12 +63,12 @@ sub center
 sub area
 {
     my ($self, $theta_step, $mode) = @_;
-
+    $mode = '' if !defined $mode;
     my $res = 0;
-    if ($mode == 'large') {
+    if ('large' eq $mode) {
        $res = $self->_area($theta_step, 1); 
-    } elsif ($mode == 'small') {
-       $res = $self->_area($theta_step, 1); 
+    } elsif ('small' eq $mode) {
+       $res = $self->_area($theta_step, 0); 
     } else {
         my @area_array = (
             $self->area($theta_step, 'large'),
@@ -76,7 +77,7 @@ sub area
         for (@area_array) {
             $res += $_;
         }
-        $res /= scalar(@area_array);
+        $res /= @area_array;
     }
     return $res;
 }
@@ -84,7 +85,8 @@ sub area
 
 sub _area
 {
-    my $triangles = triangles(@_);
+    my $self = shift;
+    my $triangles = $self->triangulation(@_);
     
     my $res = 0;
     for (@$triangles) {
@@ -97,16 +99,16 @@ sub _area
 sub first_moment_of_area
 {
     my ($self, $theta_step, $mode) = @_;
-
+    $mode = '' if !defined $mode; 
     my $res;
-    if ($mode == 'large') {
+    if ($mode eq 'large') {
         $res = _first_moment_of_area($self, $theta_step, 1);
-    } elsif ($mode == 'small') {
+    } elsif ($mode eq 'small') {
         $res = _first_moment_of_area($self, $theta_step, 0);
     } else {
         my @fmoa = (
-            first_moment_of_area($self, $theta_step, 1),
-            first_moment_of_area($self, $theta_step, 0)
+            first_moment_of_area($self, $theta_step, 'large'),
+            first_moment_of_area($self, $theta_step, 'small')
         );
         my %fmoa;
         $fmoa{sx} = ($fmoa[0]->{sx} + $fmoa[1]->{sx}) / 2;
@@ -167,7 +169,7 @@ sub triangulation
     use Math::Trig ':pi';
     my ($self, $theta_step, $external) = @_; 
 
-    $theta_step = pi / 12 if !$theta_step; 
+    $theta_step = pi / 12 if !defined $theta_step; 
     
     my $center_params = center_parameter($self);
     my @triangles;
