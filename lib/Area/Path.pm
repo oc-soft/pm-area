@@ -1,7 +1,7 @@
 package Area::Path;
 
 use strict;
-use Scalar::Util;
+use Scalar::Util qw(blessed);
 use Area::Polygon;
 use Area::Bezier::Cubic;
 use Area::Bezier::Quadratic;
@@ -20,7 +20,7 @@ sub new {
 # duplicate path
 sub clone {
     my $self = shift;
-    my $res = new Scalar::Util->blessed($self);
+    my $res = new blessed($self);
 
     for (0 .. $self->command_count - 1) {
         my $command = $self->command($_);
