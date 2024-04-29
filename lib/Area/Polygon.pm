@@ -156,6 +156,24 @@ sub signed_area {
     $res;
 }
 
+
+# calculate bounds
+sub bounds {
+    my $self = shift;
+
+    my $pt = $self->point(0);
+    my @bounds = ($pt->[0], $pt->[1], $pt->[0], $pt->[1]);
+    
+    for (1 .. $self->vertex_count - 1) {
+        $pt = $self->point($_);
+        $bounds[0] = $pt->[0] if $pt->[0] < $bounds[0];
+        $bounds[1] = $pt->[1] if $pt->[1] < $bounds[1];
+        $bounds[2] = $pt->[0] if $pt->[0] > $bounds[2];
+        $bounds[3] = $pt->[1] if $pt->[1] > $bounds[3];
+    }
+    \@bounds;
+}
+
 # calculate area
 sub area {
     abs($_[0]->signed_area);

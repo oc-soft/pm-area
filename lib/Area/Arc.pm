@@ -82,6 +82,25 @@ sub area
     return $res;
 }
 
+# calculate bounds
+sub bounds {
+    my $self = shift;
+    my $triangles = $self->triangulation(@_);
+    
+    my @pt_x = sort $self->x1, $self->x2; 
+    my @pt_y = sort $self->y1, $self->y2;
+
+    my @bounds = ($pt_x[0], $pt_y[0], $pt_x[-1], $pt_y[-1]);
+    
+    for (@$triangles) {
+        my $tri_bounds = $_->bounds;
+        $bounds[0] = $tri_bounds->[0] if $bounds[0] > $tri_bounds->[0]; 
+        $bounds[1] = $tri_bounds->[1] if $bounds[1] > $tri_bounds->[1]; 
+        $bounds[2] = $tri_bounds->[2] if $bounds[2] < $tri_bounds->[2]; 
+        $bounds[3] = $tri_bounds->[3] if $bounds[3] < $tri_bounds->[3]; 
+    }
+    \@bounds;
+}
 
 sub _area
 {

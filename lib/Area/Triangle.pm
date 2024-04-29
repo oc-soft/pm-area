@@ -40,6 +40,22 @@ sub points {
     ];
 }
 
+# calculate bounds
+sub bounds {
+    my $self = shift;
+    my @pt_x = sort { 
+        our $a;
+        our $b;
+        $a->[0] <=> $b->[0];
+    } @{$self->points}; 
+    my @pt_y = sort {
+        our $a;
+        our $b;
+        $a->[1] <=> $b->[1];
+    } @{$self->points};
+    [ $pt_x[0][0], $pt_y[0][1], $pt_x[-1][0], $pt_y[-1][1] ];
+}
+
 # calculate signed area
 sub signed_area
 {
