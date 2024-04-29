@@ -1,6 +1,7 @@
 package Area::Path;
 
 use strict;
+use Scalar::Util;
 use Area::Polygon;
 use Area::Bezier::Cubic;
 use Area::Bezier::Quadratic;
@@ -15,6 +16,46 @@ sub new {
 
     $res;
 }
+
+# duplicate path
+sub clone {
+    my $self = shift;
+    my $res = new Scalar::Util->blessed($self);
+
+    for (0 .. $self->command_count - 1) {
+        my $command = $self->command($_);
+        my %cloned = %$command;
+        push @{$res->{commands}}, \%cloned;
+    }
+    $res;
+}
+
+
+# translate
+sub translate {
+    my ($self, $x, $y) = @_;
+    for (0 .. $self->command_count - 1) {
+        $self->translate_command($_, $x, $y);
+    } 
+}
+
+# scale
+sub scale {
+    my ($self, $x, $y) = @_;
+    for (0 .. $self->command_count - 1) {
+        $self->scale_command($_, $x, $y);
+    } 
+}
+
+# rotate 
+sub rotate {
+    my ($self, $rot) = @_;
+    for (0 .. $self->command_count - 1) {
+        $self->rotate_command($_, $rot);
+    } 
+}
+
+
 
 # get command count
 sub command_count {
@@ -38,9 +79,125 @@ sub command_str {
     my $cmd = command @_;
 
     if ($cmd) {
-       $cmd->{string};
+       $cmd->{string}->($cmd);
     }
 }
+
+# traslate a command 
+sub translate_command {
+    my ($self, $cmd_idx, $x, $y) = @_;
+    $x = 0 if !defined $x;
+    $y = 0 if !defined $y;
+    if ($x || $y) {
+        my $cmd = $self->command($cmd_idx);
+        if (defined $cmd) {
+            if ($cmd->{command} =~ /M|L/) {
+                $cmd->{x} += $x;
+                $cmd->{y} += $y;
+            } elsif ($cmd->{command} eq 'C') {
+                for ((1, 2, '')) {
+                    $cmd->{"x$_"} += $x;
+                    $cmd->{"y$_"} += $y;
+                }
+            } elsif ($cmd->{command} eq 'Q') {
+                for ((1, '')) {
+                    $cmd->{"x$_"} += $x;
+                    $cmd->{"y$_"} += $y;
+                }
+            } elsif ($cmd->{command} eq 'A') {
+                $cmd->{x} += $x;
+                $cmd->{y} += $y;
+            }
+        }
+    }
+}
+
+# scale a command
+sub scale_command {
+    my ($self, $cmd_idx, $x, $y) = @_;
+    $x = 1 if !defined $x;
+    $y = 1 if !defined $y;
+    if ($x != 1 || $y != 1) {
+        my $cmd = $self->command($cmd_idx);
+        if (defined $cmd) {
+            if ($cmd->{command} =~ /M|L/) {
+                $cmd->{x} *= $x;
+                $cmd->{y} *= $y;
+            } elsif ($cmd->{command} eq 'C') {
+                for ((1, 2, '')) {
+                    $cmd->{"x$_"} *= $x;
+                    $cmd->{"y$_"} *= $y;
+                }
+            } elsif ($cmd->{command} eq 'Q') {
+                for ((1, '')) {
+                    $cmd->{"x$_"} *= $x;
+                    $cmd->{"y$_"} *= $y;
+                }
+            } elsif ($cmd->{command} eq 'A') {
+                $cmd->{rx} *= $x;
+                $cmd->{ry} *= $y;
+                $cmd->{x} *= $x;
+                $cmd->{y} *= $y;
+            }
+        }
+    }
+}
+
+# rotate a command
+sub rotate_command {
+    my ($self, $cmd_idx, $rot) = @_;
+    $rot = 0 if !defined $rot;
+    my $cos = cos($rot);
+
+    if ($cos != 1) {
+        my $sin = sin($rot);
+        sub xrot {
+            my ($cos, $sin, $x, $y) = @_;
+            $x * $cos - $y * $sin; 
+        }
+        sub yrot {
+            my ($cos, $sin, $x, $y) = @_;
+            $x * $sin + $y * $cos;
+        } 
+        my $cmd = $self->command($cmd_idx);
+        if (defined $cmd) {
+            if ($cmd->{command} =~ /M|L/) {
+                my @pt = ($cmd->{x}, $cmd->{y});
+                $cmd->{x} = xrot($cos, $sin, @pt);
+                $cmd->{y} = yrot($cos, $sin, @pt);
+            } elsif ($cmd->{command} eq 'C') {
+                for ((1, 2, '')) {
+                    my @pt = ($cmd->{"x$_"}, $cmd->{"y$_"});
+                    $cmd->{"x$_"} = xrot($cos, $sin, @pt);
+                    $cmd->{"y$_"} = yrot($cos, $sin, @pt);
+                }
+            } elsif ($cmd->{command} eq 'Q') {
+                for ((1, '')) {
+                    my @pt = ($cmd->{"x$_"}, $cmd->{"y$_"});
+                    $cmd->{"x$_"} = xrot($cos, $sin, @pt);
+                    $cmd->{"y$_"} = yrot($cos, $sin, @pt);
+                }
+            } elsif ($cmd->{command} eq 'A') {
+                my @pt = ($cmd->{x}, $cmd->{y});
+                $cmd->{x} = xrot($cos, $sin, @pt);
+                $cmd->{y} = yrot($cos, $sin, @pt);
+
+                if ($cmd->{rx} != $cmd->{ry}) {
+                    if (abs($sin) == 1) {
+                        my $tmp_val = $cmd->{rx};
+                        $cmd->{rx} = $cmd->{ry};
+                        $cmd->{ry} = $tmp_val;
+                    } else {
+                        my @r = ($cmd->{rx}, $cmd->{ry});
+                        $cmd->{rx} = abs(xrot($cos, $sin, @r));  
+                        $cmd->{ry} = abs(xrot($cos, $sin, @r));  
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 # add moveto command
 sub moveto {
@@ -57,7 +214,10 @@ sub create_moveto {
         command => 'M',
         x => $x,
         y => $y,
-        string => "M $x $y"
+        string => sub {
+            my $cmd = shift;
+            join ' ', $cmd->{command}, $cmd->{x}, $cmd->{y};
+        }
     };
 }
 
@@ -76,7 +236,10 @@ sub create_lineto {
         command => 'L',
         x => $x,
         y => $y,
-        string => "L $x $y"
+        string => sub {
+            my $cmd = shift;
+            join ' ', $cmd->{command}, $cmd->{x}, $cmd->{y};
+        }
     };
 }
 
@@ -89,9 +252,14 @@ sub cubic_bezierto {
         x1 => $x1, y1 => $y1, 
         x2 => $x2, y2 => $y2,
         x => $x, y => $y,
-        string => "C $x1 $y1 $x2 $y2 $x $y"
+        string => sub {
+            my $cmd = shift;
+            join ' ', $cmd->{command},
+                $cmd->{x1}, $cmd->{y1},
+                $cmd->{x2}, $cmd->{y2},
+                $cmd->{x}, $cmd->{y};
+        }
     };
-    
 }
 
 
@@ -102,7 +270,12 @@ sub quadratic_bezierto {
         command => 'Q',
         x1 => $x1, y1 => $y1, 
         x => $x, y => $y,
-        string => "Q $x1 $y1 $x $y"
+        string => sub {
+            my $cmd = shift;
+            join ' ', $cmd->{command},
+                $cmd->{x1}, $cmd->{y1},
+                $cmd->{x}, $cmd->{y};
+        }
     };
 }
 
@@ -135,7 +308,14 @@ sub arcto {
         large_arc_flag => $large_arc_flag,
         sweep_flag => $sweep_flag,
         x => $x, y => $y,
-        string => "A $rx $ry $x_axis_rotation $large_arc_flag $sweep_flag $x $y"
+        string => sub {
+            my $cmd = shift;
+            join ' ', $cmd->{command},
+                $cmd->{rx}, $cmd->{ry},
+                $cmd->{x_axis_rotation}, $cmd->{large_arc_flag},
+                $cmd->{sweep_flag},
+                $cmd->{x}, $cmd->{y};
+        }
     };
 }
 
@@ -144,7 +324,9 @@ sub close {
     my $self = shift;
     push @{$self->{commands}}, {
         command => 'Z',
-        string => 'Z'
+        string => sub {
+            'Z'
+        }
     };
 }
 
@@ -274,8 +456,8 @@ sub polygons_and_svg_elements {
                 $poly_param{"p$_"} = $line_commands[0]->{points}->[$_];
             }
             my $idx_offset = @{$line_commands[0]->{points}};
-            for (0 .. @{$line_commands[1]->{points}} - 1) {
-                my $pt_idx = $_ + $idx_offset;
+            for (1 .. @{$line_commands[1]->{points}} - 1) {
+                my $pt_idx = $_ + $idx_offset - 1;
                 $poly_param{"p$pt_idx"} = $line_commands[1]->{points}->[$_];
             }
             for (@line_commands) {
@@ -287,8 +469,8 @@ sub polygons_and_svg_elements {
                     $commands->[$_ - 1], $commands->[$_]);
                 push @svg_commands, $line_command->{command}
                     if defined $line_command->{command};
-                for (@{$line_command->{points}}) {
-                    $polygon->add_point($_);
+                for (1 .. @{$line_command->{points}} - 1) {
+                    $polygon->add_point($line_command->{points}->[$_]);
                 }
             }
             push @res, {
